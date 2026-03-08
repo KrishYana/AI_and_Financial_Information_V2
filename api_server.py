@@ -15,7 +15,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -33,38 +32,18 @@ load_dotenv()
 
 NB_PATH = os.path.join(os.path.dirname(__file__), "notebooks", "01_biotech_disclosure_pipeline.ipynb")
 
-# Lines matching this pattern in Cell 110 trigger the demo pipeline at import
-# time — we strip them so the server starts without running a full analysis.
-_DEMO_BLOCK_START = re.compile(r"^_demo_ticker\s*=")
-
-
 def _load_notebook_namespace() -> dict[str, Any]:
-    """Execute all code cells (0-110) into a shared namespace, skipping the
-    auto-run demo block at the end of Cell 110."""
+    """Execute all code cells into a shared namespace."""
     with open(NB_PATH) as f:
         nb = json.load(f)
 
     sources: list[str] = []
     code_cell_count = 0
-    for cell in nb["cells"][:111]:  # cells 0-110 inclusive
+    for cell in nb["cells"]:
         if cell["cell_type"] != "code":
             continue
         source = "".join(cell["source"])
         code_cell_count += 1
-
-        # Strip the demo execution block from the last code cell
-        # (starts at `_demo_ticker = ...` and runs to end of cell)
-        lines = source.split("\n")
-        cleaned_lines = []
-        hit_demo = False
-        for line in lines:
-            if _DEMO_BLOCK_START.match(line):
-                hit_demo = True
-            if not hit_demo:
-                cleaned_lines.append(line)
-        if hit_demo:
-            source = "\n".join(cleaned_lines)
-
         sources.append(source)
 
     ns: dict[str, Any] = {"__name__": "__main__", "__builtins__": __builtins__}
@@ -132,13 +111,11 @@ def health():
     fmc = _GLOBAL_CONFIG["future_model_config"]
     return {
         "status": "ok",
-        "analysis_client_mode": ff.get("analysis_client_mode"),
         "worker_model_name": fmc.get("worker_model_name"),
         "embedding_provider": _GLOBAL_CONFIG.get("embedding_defaults", {}).get("provider"),
         "enable_embeddings": ff.get("enable_embeddings"),
         "api_keys_configured": {
             "moonshot": bool(os.environ.get("MOONSHOT_API_KEY")),
-            "anthropic": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "openfda": bool(os.environ.get("OPENFDA_API_KEY")),
             "voyage": bool(os.environ.get("VOYAGE_AI_API_KEY")),
         },

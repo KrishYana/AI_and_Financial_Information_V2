@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Execute the full biotech disclosure pipeline for a given ticker.
 
-This script loads all notebook cells (0-110) to initialize the pipeline,
+This script loads all notebook code cells to initialize the pipeline,
 then calls run_full_pipeline() for the specified ticker.
 """
 import json
@@ -14,12 +14,12 @@ load_dotenv()
 
 NB_PATH = os.path.join(os.path.dirname(__file__), "notebooks", "01_biotech_disclosure_pipeline.ipynb")
 
-def extract_code_cells(nb_path: str, up_to_cell: int = 110) -> list[str]:
-    """Extract source code from all code cells up to (and including) the target cell."""
+def extract_code_cells(nb_path: str) -> list[str]:
+    """Extract source code from all code cells in the notebook."""
     with open(nb_path) as f:
         nb = json.load(f)
     sources = []
-    for i, cell in enumerate(nb["cells"][:up_to_cell + 1]):
+    for cell in nb["cells"]:
         if cell["cell_type"] == "code":
             source = "".join(cell["source"])
             sources.append(source)
@@ -30,7 +30,7 @@ def main():
     ticker = sys.argv[1] if len(sys.argv) > 1 else "BIIB"
     print(f"=== Loading pipeline from notebook ({NB_PATH}) ===")
 
-    code_cells = extract_code_cells(NB_PATH, up_to_cell=110)
+    code_cells = extract_code_cells(NB_PATH)
 
     # Build a shared namespace and execute all cells to load definitions
     ns = {"__name__": "__main__", "__builtins__": __builtins__}
