@@ -53,8 +53,7 @@ CREATE TABLE IF NOT EXISTS query_history (
     ticker TEXT NOT NULL,
     timestamp TEXT NOT NULL DEFAULT (datetime('now')),
     final_arbiter_response TEXT,
-    FOREIGN KEY (user_id) REFERENCES users(user_id),
-    FOREIGN KEY (run_id) REFERENCES document_runs(run_id)
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_query_history_user
@@ -225,20 +224,24 @@ def record_query(
 ) -> str:
     """Record a user query, linking to the document run. Returns query_id."""
     query_id = str(uuid.uuid4())
-    conn.execute(
-        """
-        INSERT INTO query_history (query_id, user_id, run_id, ticker, final_arbiter_response)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            query_id,
-            user_id,
-            run_id,
-            ticker.upper(),
-            json.dumps(arbiter_response, default=str) if arbiter_response else None,
-        ),
-    )
-    conn.commit()
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute(
+            """
+            INSERT INTO query_history (query_id, user_id, run_id, ticker, final_arbiter_response)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                query_id,
+                user_id,
+                run_id,
+                ticker.upper(),
+                json.dumps(arbiter_response, default=str) if arbiter_response else None,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
     return query_id
 
 
@@ -309,13 +312,18 @@ def save_chunks_to_lancedb(
         records.append(record)
 
     table_name = "document_chunks"
-    try:
-        table = lance_db.open_table(table_name)
-        # Delete existing chunks for this document before re-inserting
-        table.delete(f'document_id = "{document_id}"')
-        table.add(records)
-    except Exception:
-        # Table doesn't exist yet — create it
+    existing_tables = lance_db.table_names()
+    if table_name in existing_tables:
+        try:
+            table = lance_db.open_table(table_name)
+            # Delete existing chunks for this document before re-inserting
+            table.delete(f'document_id = "{document_id}"')
+            table.add(records)
+        except Exception:
+            # Schema mismatch — drop and recreate
+            lance_db.drop_table(table_name)
+            lance_db.create_table(table_name, records)
+    else:
         lance_db.create_table(table_name, records)
 
     logger.info(

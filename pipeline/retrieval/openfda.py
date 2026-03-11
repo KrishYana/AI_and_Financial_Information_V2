@@ -19,8 +19,39 @@ from pipeline.retrieval.base import BaseRetrievalAdapter
 
 __all__ = [
     "OpenFDAReviewRetrievalAdapter",
+    "FDA_SPONSOR_LOOKUP",
     "_parse_fda_date",
 ]
+
+# Verified ticker → OpenFDA sponsor_name mapping.
+# These were validated against the openFDA drugsfda.json endpoint.
+# Companies without FDA drug approvals (e.g. vaccine-only like MRNA, NVAX)
+# are intentionally omitted.
+FDA_SPONSOR_LOOKUP: dict[str, str] = {
+    "ABBV": "ABBVIE",
+    "AMGN": "AMGEN",
+    "AZN": "ASTRAZENECA",
+    "BIIB": "BIOGEN",
+    "BMY": "BRISTOL-MYERS",
+    "BMRN": "BIOMARIN",
+    "BPMC": "BLUEPRINT MEDICINES",
+    "EXEL": "EXELIXIS",
+    "GILD": "GILEAD",
+    "HALO": "HALOZYME THERAP",
+    "INCY": "INCYTE CORP",
+    "INSM": "INSMED",
+    "JAZZ": "JAZZ",
+    "JNJ": "JOHNSON AND JOHNSON",
+    "LLY": "ELI LILLY AND CO",
+    "MRK": "MERCK",
+    "NBIX": "NEUROCRINE",
+    "PFE": "PFIZER",
+    "PTCT": "PTC THERAP",
+    "REGN": "REGENERON PHARMACEUTICALS",
+    "SGEN": "SEAGEN",
+    "UTHR": "UNITED THERAP",
+    "VRTX": "VERTEX PHARMS",
+}
 
 
 def _parse_fda_date(date_str: str | None) -> datetime | None:
@@ -55,8 +86,15 @@ class OpenFDAReviewRetrievalAdapter(BaseRetrievalAdapter):
         resp.raise_for_status()
         return resp.json().get("results", [])
 
+    def _resolve_sponsor_name(self, request: RetrievalRequest) -> str:
+        """Resolve the FDA sponsor name from ticker lookup, then company name fallback."""
+        ticker_upper = request.ticker.upper()
+        if ticker_upper in FDA_SPONSOR_LOOKUP:
+            return FDA_SPONSOR_LOOKUP[ticker_upper]
+        return request.company_name or ticker_upper
+
     def search_candidates(self, request: RetrievalRequest) -> list[RawRetrievalCandidateMetadata]:
-        company = request.company_name or request.ticker
+        company = self._resolve_sponsor_name(request)
         search_query = f'sponsor_name:"{company}"'
         results = self._query_fda(self.DRUGSFDA_URL, search_query, request.max_candidates)
         candidates = []
@@ -136,7 +174,7 @@ class OpenFDAReviewRetrievalAdapter(BaseRetrievalAdapter):
                 text_parts.append(f"  - {sub_type} #{sub_num}: {sub_status} ({sub_date})")
 
         # Try to fetch drug label for additional context
-        company = request.company_name or request.ticker
+        company = self._resolve_sponsor_name(request)
         try:
             label_results = self._query_fda(
                 self.LABEL_URL,
